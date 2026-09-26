@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Eisenhower Task Matrix</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React & ReactDOM CDNs -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <!-- Babel for JSX compilation -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Plus Jakarta Sans', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Lock root body to exact viewport without page scrolling */
+        html, body {
+            height: 100%;
+            max-height: 100vh;
+            overflow: hidden;
+            touch-action: manipulation;
+        }
+
+        /* Compact custom scrollbars for inner quadrant scrolling */
+        ::-webkit-scrollbar {
+            width: 4px;
+            height: 4px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(156, 163, 175, 0.4);
+            border-radius: 9999px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(107, 114, 128, 0.7);
+        }
+
+        .drag-over-cell {
+            background-color: rgba(59, 130, 246, 0.08) !important;
+            outline: 2px dashed #3b82f6;
+            outline-offset: -4px;
+        }
+        .task-card-dragging {
+            opacity: 0.4;
+            transform: scale(0.96);
+        }
+    </style>
+</head>
+<body class="bg-slate-100 dark:bg-slate-950 text-slate-800 dark:text-slate-100 font-sans antialiased">
+
+    <div id="root" class="h-full"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // Tag categories options
+        const TAG_OPTIONS = [
+            { id: 'work', label: '💼 Work', color: 'bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-300' },
+            { id: 'personal', label: '🏠 Personal', color: 'bg-purple-100 text-purple-800 dark:bg-purple-900/60 dark:text-purple-300' },
+            { id: 'health', label: '🏋️ Health', color: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300' },
+            { id: 'finance', label: '💰 Finance', color: 'bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300' },
+            { id: 'urgent', label: '🔥 Urgent', color: 'bg-rose-100 text-rose-800 dark:bg-rose-900/60 dark:text-rose-300' },
+            { id: 'learning', label: '📚 Learning', color: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/60 dark:text-indigo-300' }
+        ];
+
+        // 4 Matrix Quadrants Metadata with exact Table Quadrant formatting
+        const QUADRANTS = {
+            Q1: {
+                id: 'Q1',
+                codeName: 'Quadrant 1',
+                title: 'DO NOW',
+                subtitle: 'Urgent & Important',
+                fullLabel: 'Quadrant 1: DO NOW (Urgent & Important)',
+                headerBg: 'bg-rose-500 text-white',
+                lightAccent: 'bg-rose-50/40 dark:bg-rose-950/10',
+                borderAccent: 'border-rose-500/30'
+            },
+            Q2: {
+                id: 'Q2',
+                codeName: 'Quadrant 2',
+                title: 'DO LATER',
+                subtitle: 'Important & Not Urgent',
+                fullLabel: 'Quadrant 2: DO LATER (Important & Not Urgent)',
+                headerBg: 'bg-indigo-500 text-white',
+                lightAccent: 'bg-indigo-50/40 dark:bg-indigo-950/10',
+                borderAccent: 'border-indigo-500/30'
+            },
+            Q3: {
+                id: 'Q3',
+                codeName: 'Quadrant 3',
+                title: 'DELEGATE',
+                subtitle: 'Urgent & Not Important',
+                fullLabel: 'Quadrant 3: DELEGATE (Urgent & Not Important)',
+                headerBg: 'bg-amber-500 text-white',
+                lightAccent: 'bg-amber-50/40 dark:bg-amber-950/10',
+                borderAccent: 'border-amber-500/30'
+            },
+            Q4: {
+                id: 'Q4',
+                codeName: 'Quadrant 4',
+                title: 'DO NOT',
+                subtitle: 'Neither Urgent nor Important',
+                fullLabel: 'Quadrant 4: DO NOT (Neither Urgent nor Important)',
+                headerBg: 'bg-slate-600 text-white',
+                lightAccent: 'bg-slate-200/30 dark:bg-slate-900/20',
+                borderAccent: 'border-slate-500/30'
+            }
+        };
+
+        // Initial Sample Data
+        const INITIAL_TASKS = [
+            {
+                id: '1',
+                title: 'Fix server latency spike',
+                description: 'Resolve database bottleneck on API response.',
+                quadrant: 'Q1',
+                tag: 'work',
+                completed: false,
+                dueDate: '2026-09-28'
+            },
+            {
+                id: '2',
+                title: 'Design Q4 Product Roadmap',
+                description: 'Draft strategic goals and milestones.',
+                quadrant: 'Q2',
+                tag: 'work',
+                completed: false,
+                dueDate: '2026-10-05'
+            },
+            {
+                id: '3',
+                title: 'Organise inbox & spam',
+                description: 'Unsubscribe from unneeded bulk newsletters.',
+                quadrant: 'Q3',
+                tag: 'personal',
+                completed: false,
+                dueDate: ''
+            },
+            {
+                id: '4',
+                title: 'Clean temporary downloads',
+                description: 'Delete old installer files.',
+                quadrant: 'Q4',
+                tag: 'learning',
+                completed: true,
+                dueDate: ''
+            }
+        ];
+
+        function App() {
+            const [tasks, setTasks] = useState(() => {
+                const saved = localStorage.getItem('eisenhower_tasks_unified');
+                return saved ? JSON.parse(saved) : INITIAL_TASKS;
+            });
+
+            const [isModalOpen, setIsModalOpen] = useState(false);
+            const [editingTask, setEditingTask] = useState(null);
+            const [searchQuery, setSearchQuery] = useState('');
+            const [selectedTagFilter, setSelectedTagFilter] = useState('all');
+            const [draggedTaskId, setDraggedTaskId] = useState(null);
+
+            // Modal Form State
+            const [formTitle, setFormTitle] = useState('');
+            const [formDesc, setFormDesc] = useState('');
+            const [formQuadrant, setFormQuadrant] = useState('Q1');
+            const [formTag, setFormTag] = useState('work');
+            const [formDueDate, setFormDueDate] = useState('');
+
+            // Save state changes locally
+            useEffect(() => {
+                localStorage.setItem('eisenhower_tasks_unified', JSON.stringify(tasks));
+            }, [tasks]);
+
+            // Re-initialize icons
+            useEffect(() => {
+                if (window.lucide) {
+                    window.lucide.createIcons();
+                }
+            });
+
+            // Open Modal to Add
+            const openNewTaskModal = (defaultQuadrant = 'Q1') => {
+                setEditingTask(null);
+                setFormTitle('');
+                setFormDesc('');
+                setFormQuadrant(defaultQuadrant);
+                setFormTag('work');
+                setFormDueDate('');
+                setIsModalOpen(true);
+            };
+
+            // Open Modal to Edit
+            const openEditTaskModal = (task) => {
+                setEditingTask(task);
+                setFormTitle(task.title);
+                setFormDesc(task.description || '');
+                setFormQuadrant(task.quadrant);
+                setFormTag(task.tag || 'work');
+                setFormDueDate(task.dueDate || '');
+                setIsModalOpen(true);
+            };
+
+            const handleSaveTask = (e) => {
+                e.preventDefault();
+                if (!formTitle.trim()) return;
+
+                if (editingTask) {
+                    setTasks(tasks.map(t => t.id === editingTask.id ? {
+                        ...t,
+                        title: formTitle,
+                        description: formDesc,
+                        quadrant: formQuadrant,
+                        tag: formTag,
+                        dueDate: formDueDate
+                    } : t));
+                } else {
+                    const newTask = {
+                        id: Date.now().toString(),
+                        title: formTitle,
+                        description: formDesc,
+                        quadrant: formQuadrant,
+                        tag: formTag,
+                        completed: false,
+                        dueDate: formDueDate
+                    };
+                    setTasks([newTask, ...tasks]);
+                }
+                setIsModalOpen(false);
+            };
+
+            const toggleTaskComplete = (taskId) => {
+                setTasks(tasks.map(t => t.id === taskId ? { ...t, completed: !t.completed } : t));
+            };
+
+            const deleteTask = (taskId) => {
+                setTasks(tasks.filter(t => t.id !== taskId));
+            };
+
+            const moveTaskQuadrant = (taskId, targetQuadrant) => {
+                setTasks(tasks.map(t => t.id === taskId ? { ...t, quadrant: targetQuadrant } : t));
+            };
+
+            // Drag and Drop Event Logic
+            const handleDragStart = (e, id) => {
+                setDraggedTaskId(id);
+                e.dataTransfer.setData('text/plain', id);
+                e.currentTarget.classList.add('task-card-dragging');
+            };
+
+            const handleDragEnd = (e) => {
+                setDraggedTaskId(null);
+                e.currentTarget.classList.remove('task-card-dragging');
+            };
+
+            const handleDragOver = (e) => {
+                e.preventDefault();
+                e.currentTarget.classList.add('drag-over-cell');
+            };
+
+            const handleDragLeave = (e) => {
+                e.currentTarget.classList.remove('drag-over-cell');
+            };
+
+            const handleDrop = (e, targetQuadrant) => {
+                e.preventDefault();
+                e.currentTarget.classList.remove('drag-over-cell');
+                const id = e.dataTransfer.getData('text/plain') || draggedTaskId;
+                if (id) {
+                    moveTaskQuadrant(id, targetQuadrant);
+                }
+            };
+
+            // Filtered task results
+            const filteredTasks = tasks.filter(task => {
+                const matchesSearch = task.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                                      task.description.toLowerCase().includes(searchQuery.toLowerCase());
+                const matchesTag = selectedTagFilter === 'all' || task.tag === selectedTagFilter;
+                return matchesSearch && matchesTag;
+            });
+
+            const totalTasks = tasks.length;
+            const completedCount = tasks.filter(t => t.completed).length;
+
+            return (
+                <div class="h-screen w-screen max-h-screen overflow-hidden flex flex-col p-2 sm:p-4 gap-2">
+                    
+                    {/* Header Bar - Ultra-compact to preserve viewport height */}
+                    <header class="flex-none bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 shadow-sm flex flex-wrap items-center justify-between gap-2">
+                        
+                        {/* Title & Stats */}
+                        <div class="flex items-center gap-2">
+                            <div class="p-1.5 bg-blue-600 text-white rounded-lg shadow-sm">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path></svg>
+                            </div>
+                            <div>
+                                <h1 class="text-sm sm:text-base font-bold text-slate-900 dark:text-white leading-tight">Priority Matrix Planner</h1>
+                                <p class="text-[10px] sm:text-xs text-slate-500 dark:text-slate-400 font-medium hidden sm:block">Eisenhower Grid</p>
+                            </div>
+                            <span class="ml-2 text-[11px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded-full border border-slate-200 dark:border-slate-700">
+                                {completedCount}/{totalTasks} Done
+                            </span>
+                        </div>
+
+                        {/* Search & Action Bar */}
+                        <div class="flex items-center gap-2 ml-auto">
+                            <div class="relative w-28 sm:w-44">
+                                <input 
+                                    type="text"
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    placeholder="Search..."
+                                    class="w-full pl-7 pr-2 py-1 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 text-slate-800 dark:text-slate-100"
+                                />
+                                <svg class="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                            </div>
+
+                            <select 
+                                value={selectedTagFilter}
+                                onChange={(e) => setSelectedTagFilter(e.target.value)}
+                                class="px-2 py-1 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs text-slate-700 dark:text-slate-300 focus:outline-none">
+                                <option value="all">All Tags</option>
+                                {TAG_OPTIONS.map(tag => (
+                                    <option key={tag.id} value={tag.id}>{tag.label}</option>
+                                ))}
+                            </select>
+
+                            <button 
+                                onClick={() => openNewTaskModal()}
+                                class="flex items-center gap-1 px-2.5 py-1 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-medium text-xs rounded-lg shadow-sm transition-all">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                                <span>Task</span>
+                            </button>
+                        </div>
+                    </header>
+
+                    {}
+                    {/* Unified Single Outer Grid Box divided into 4 quarters by intersecting center lines */}
+                    <main class="flex-1 min-h-0 bg-white dark:bg-slate-900 border-2 border-slate-300 dark:border-slate-700 rounded-2xl sm:rounded-3xl shadow-lg overflow-hidden flex flex-col">
+                        
+                        {/* Table Matrix Column Axis Labels */}
+                        <div class="flex-none grid grid-cols-2 border-b-2 border-slate-300 dark:border-slate-700 bg-slate-100/80 dark:bg-slate-800/80 text-center py-1 text-[10px] sm:text-xs font-bold text-slate-600 dark:text-slate-300">
+                            <div class="border-r-2 border-slate-300 dark:border-slate-700 flex items-center justify-center gap-1">
+                                <span class="w-2 h-2 rounded-full bg-rose-500"></span> URGENT
+                            </div>
+                            <div class="flex items-center justify-center gap-1">
+                                <span class="w-2 h-2 rounded-full bg-indigo-500"></span> NOT URGENT
+                            </div>
+                        </div>
+
+                        <div class="flex-1 min-h-0 grid grid-cols-2 grid-rows-2">
+                        {Object.values(QUADRANTS).map((quad, index) => {
+                            const quadrantTasks = filteredTasks.filter(t => t.quadrant === quad.id);
+
+                            // CSS grid line border logic to form an exact 2x2 crosshair layout
+                            const isLeftCol = index % 2 === 0;
+                            const isTopRow = index < 2;
+                            const borderClasses = `
+                                ${isLeftCol ? 'border-r-2 border-slate-300 dark:border-slate-700' : ''} 
+                                ${isTopRow ? 'border-b-2 border-slate-300 dark:border-slate-700' : ''}
+                            `;
+
+                            return (
+                                <div 
+                                    key={quad.id}
+                                    onDragOver={handleDragOver}
+                                    onDragLeave={handleDragLeave}
+                                    onDrop={(e) => handleDrop(e, quad.id)}
+                                    class={`flex flex-col h-full min-h-0 ${borderClasses} ${quad.lightAccent} p-1.5 sm:p-2.5 relative transition-colors`}>
+                                    
+                                    {/* Quadrant Cross Header */}
+                                    <div class="flex-none flex items-center justify-between pb-1 mb-1 border-b border-slate-200/80 dark:border-slate-800">
+                                        <div class="flex items-center gap-1.5 min-w-0">
+                                            <span class={`px-1.5 py-0.5 rounded text-[9px] sm:text-[11px] font-black uppercase tracking-wider ${quad.headerBg}`}>
+                                                {quad.codeName}
+                                            </span>
+                                            <div class="truncate">
+                                                <h2 class="font-bold text-slate-800 dark:text-slate-100 text-xs sm:text-sm truncate leading-tight">
+                                                    {quad.title}
+                                                </h2>
+                                                <p class="text-[9px] sm:text-[10px] text-slate-500 dark:text-slate-400 font-medium truncate">
+                                                    ({quad.subtitle})
+                                                </p>
+                                            </div>
+                                        </div>
+
+                                        <button 
+                                            onClick={() => openNewTaskModal(quad.id)}
+                                            title="Add Task"
+                                            class="p-1 text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-slate-800 rounded transition-colors flex-none">
+                                            <svg class="w-3.5 h-3.5 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                                        </button>
+                                    </div>
+
+                                    {/* Quadrant Internal Scrollable Task Area */}
+                                    <div class="flex-1 min-h-0 overflow-y-auto space-y-1.5 pr-0.5">
+                                        {quadrantTasks.length === 0 ? (
+                                            <div class="h-full min-h-[50px] border border-dashed border-slate-300 dark:border-slate-800 rounded-xl flex items-center justify-center p-2 text-center">
+                                                <span class="text-[10px] sm:text-xs text-slate-400">+ Add Task to {quad.codeName}</span>
+                                            </div>
+                                        ) : (
+                                            quadrantTasks.map(task => {
+                                                const tagObj = TAG_OPTIONS.find(t => t.id === task.tag) || TAG_OPTIONS[0];
+
+                                                return (
+                                                    <div 
+                                                        key={task.id}
+                                                        draggable
+                                                        onDragStart={(e) => handleDragStart(e, task.id)}
+                                                        onDragEnd={handleDragEnd}
+                                                        class={`group p-2 rounded-xl bg-white dark:bg-slate-800 border ${task.completed ? 'opacity-50 border-slate-200 dark:border-slate-800' : 'border-slate-200/90 dark:border-slate-700/80 shadow-sm'} transition-all cursor-grab active:cursor-grabbing`}>
+                                                        
+                                                        {/* Task Top Row */}
+                                                        <div class="flex items-start justify-between gap-1.5">
+                                                            <div class="flex items-start gap-1.5 flex-1 min-w-0">
+                                                                <input 
+                                                                    type="checkbox"
+                                                                    checked={task.completed}
+                                                                    onChange={() => toggleTaskComplete(task.id)}
+                                                                    class="mt-0.5 w-3.5 h-3.5 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer flex-none"
+                                                                />
+                                                                <div class="min-w-0 flex-1">
+                                                                    <h3 class={`text-xs font-semibold leading-tight truncate ${task.completed ? 'line-through text-slate-400' : 'text-slate-800 dark:text-slate-100'}`}>
+                                                                        {task.title}
+                                                                    </h3>
+                                                                    {task.description && (
+                                                                        <p class="text-[10px] sm:text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-1 leading-snug">
+                                                                            {task.description}
+                                                                        </p>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+
+                                                            {/* Card Actions */}
+                                                            <div class="flex items-center gap-0.5 opacity-80 group-hover:opacity-100">
+                                                                <button 
+                                                                    onClick={() => openEditTaskModal(task)}
+                                                                    class="p-0.5 text-slate-400 hover:text-blue-500 rounded">
+                                                                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
+                                                                </button>
+                                                                <button 
+                                                                    onClick={() => deleteTask(task.id)}
+                                                                    class="p-0.5 text-slate-400 hover:text-rose-500 rounded">
+                                                                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                                                                </button>
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Task Footer Meta & Move Selector */}
+                                                        <div class="mt-1.5 pt-1 border-t border-slate-100 dark:border-slate-700/50 flex flex-wrap items-center justify-between gap-1 text-[10px]">
+                                                            <span class={`px-1.5 py-0.2 rounded font-medium text-[9px] ${tagObj.color}`}>
+                                                                {tagObj.label}
+                                                            </span>
+
+                                                            {/* Quadrant Quick Move Dropdown */}
+                                                            <select 
+                                                                value={task.quadrant}
+                                                                onChange={(e) => moveTaskQuadrant(task.id, e.target.value)}
+                                                                class="text-[9px] bg-slate-100 dark:bg-slate-700 border-none rounded px-1 py-0.2 text-slate-600 dark:text-slate-300 focus:ring-0 font-medium max-w-[125px] truncate">
+                                                                {Object.values(QUADRANTS).map(q => (
+                                                                    <option key={q.id} value={q.id}>{q.codeName}: {q.title}</option>
+                                                                ))}
+                                                            </select>
+                                                        </div>
+
+                                                    </div>
+                                                );
+                                            })
+                                        )}
+                                    </div>
+
+                                </div>
+                            );
+                        })}
+                        </div>
+
+                    </main>
+
+                    {/* Create / Edit Modal Dialog */}
+                    {isModalOpen && (
+                        <div class="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
+                            <div class="bg-white dark:bg-slate-900 rounded-2xl max-w-sm w-full p-4 shadow-2xl border border-slate-200 dark:border-slate-800 relative">
+                                
+                                <div class="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-slate-800">
+                                    <h3 class="text-sm font-bold text-slate-900 dark:text-white">
+                                        {editingTask ? 'Edit Task' : 'New Priority Task'}
+                                    </h3>
+                                    <button 
+                                        onClick={() => setIsModalOpen(false)}
+                                        class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 rounded-lg text-xs font-bold">
+                                        ✕
+                                    </button>
+                                </div>
+
+                                <form onSubmit={handleSaveTask} class="mt-3 space-y-3 text-xs">
+                                    <div>
+                                        <label class="block font-semibold text-slate-600 dark:text-slate-300 mb-1">
+                                            Title *
+                                        </label>
+                                        <input 
+                                            type="text"
+                                            required
+                                            value={formTitle}
+                                            onChange={(e) => setFormTitle(e.target.value)}
+                                            placeholder="Task title..."
+                                            class="w-full px-3 py-1.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 text-slate-800 dark:text-slate-100"
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label class="block font-semibold text-slate-600 dark:text-slate-300 mb-1">
+                                            Description
+                                        </label>
+                                        <textarea 
+                                            rows="2"
+                                            value={formDesc}
+                                            onChange={(e) => setFormDesc(e.target.value)}
+                                            placeholder="Optional details..."
+                                            class="w-full px-3 py-1.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 text-slate-800 dark:text-slate-100 resize-none"
+                                        ></textarea>
+                                    </div>
+
+                                    <div class="grid grid-cols-2 gap-2">
+                                        <div>
+                                            <label class="block font-semibold text-slate-600 dark:text-slate-300 mb-1">
+                                                Quadrant
+                                            </label>
+                                            <select 
+                                                value={formQuadrant}
+                                                onChange={(e) => setFormQuadrant(e.target.value)}
+                                                class="w-full px-2 py-1.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-800 dark:text-slate-100 font-medium">
+                                                {Object.values(QUADRANTS).map(q => (
+                                                    <option key={q.id} value={q.id}>{q.fullLabel}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+
+                                        <div>
+                                            <label class="block font-semibold text-slate-600 dark:text-slate-300 mb-1">
+                                                Tag
+                                            </label>
+                                            <select 
+                                                value={formTag}
+                                                onChange={(e) => setFormTag(e.target.value)}
+                                                class="w-full px-2 py-1.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-800 dark:text-slate-100 font-medium">
+                                                {TAG_OPTIONS.map(tag => (
+                                                    <option key={tag.id} value={tag.id}>{tag.label}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <label class="block font-semibold text-slate-600 dark:text-slate-300 mb-1">
+                                            Due Date
+                                        </label>
+                                        <input 
+                                            type="date"
+                                            value={formDueDate}
+                                            onChange={(e) => setFormDueDate(e.target.value)}
+                                            class="w-full px-3 py-1.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-800 dark:text-slate-100"
+                                        />
+                                    </div>
+
+                                    <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+                                        <button 
+                                            type="button"
+                                            onClick={() => setIsModalOpen(false)}
+                                            class="px-3 py-1 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-medium">
+                                            Cancel
+                                        </button>
+                                        <button 
+                                            type="submit"
+                                            class="px-4 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-medium shadow-sm transition-all">
+                                            {editingTask ? 'Save' : 'Create'}
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
